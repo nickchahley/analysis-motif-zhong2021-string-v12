@@ -1,0 +1,5 @@
+outs:
+- md5: 03fcc3fd014234b60ba6d5e4127fb67c
+  size: 11086354
+  hash: md5
+  path: 9606.protein.physical.links.detailed.v12.0.txt.gz

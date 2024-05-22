@@ -1,0 +1,80 @@
+schema: '2.0'
+stages:
+  reshape:
+    cmd: src/clean_expression.py data/zhong2021/s4-plasma_protein_profiling.csv data/zhong2021/expression.csv
+    deps:
+    - path: src/clean_expression.py
+      hash: md5
+      md5: 90db3527549c84de0b7df782313b758c
+      size: 1072
+    outs:
+    - path: data/zhong2021/expression.csv
+      hash: md5
+      md5: 87d24147c0f08f0a6a5550d3729010ae
+      size: 5097803
+  bin_expression:
+    cmd: "src/motif_mining/graphs/bin_expression.py  data/zhong2021/expression.csv\
+      \  data/mining  --value npx  --node_id symbol\n"
+    deps:
+    - path: data/zhong2021/expression.csv
+      hash: md5
+      md5: 87d24147c0f08f0a6a5550d3729010ae
+      size: 5097803
+    - path: src/motif_mining/graphs/bin_expression.py
+      hash: md5
+      md5: bca6cccfa17a36727ff15d4de5515eaa
+      size: 4511
+    outs:
+    - path: data/mining/expression/breaks.txt
+      hash: md5
+      md5: 4b01a3adbe82955160624e16b8572d28
+      size: 153
+    - path: data/mining/expression/expression_binned.csv
+      hash: md5
+      md5: a92959a411e78dc25336a23e7956d4e6
+      size: 4247044
+  generate_graphs:
+    cmd: "src/motif_mining/graphs/generate.py  data/mining/expression/expression_binned.csv\
+      \  data/string/9606.protein.physical.links.detailed.v12.0.txt.gz data/mining/graphs\
+      \  --node_ids data/string/string_v12_idmap.csv --var_id symbol --obs_id id_visit
+      --clobber\n"
+    deps:
+    - path: data/mining/expression/expression_binned.csv
+      hash: md5
+      md5: a92959a411e78dc25336a23e7956d4e6
+      size: 4247044
+    - path: data/string/string_v12_idmap.csv
+      hash: md5
+      md5: 7099bad7abaa68194dea08852109cdf3
+      size: 1361627
+    - path: src/motif_mining/graphs/generate.py
+      hash: md5
+      md5: 977dd0c0e3175c36964e5f3165643550
+      size: 7025
+  clean:
+    cmd: src/clean_expression.py data/zhong2021/s4-plasma_protein_profiling.csv data/zhong2021/expression.csv
+      --meta_out data/zhong2021/meta.csv
+    deps:
+    - path: src/clean_expression.py
+      hash: md5
+      md5: c25b7e336bd0b067b47245b8fada6757
+      size: 1631
+    outs:
+    - path: data/zhong2021/expression.csv
+      hash: md5
+      md5: 87d24147c0f08f0a6a5550d3729010ae
+      size: 5097803
+    - path: data/zhong2021/meta.csv
+      hash: md5
+      md5: f76384346cfa29745df022a655d1bc00
+      size: 1690
+  setup_exp:
+    cmd: "src/motif_mining/mining/setup_experiment.py data/zhong2021/meta.csv data/mining/graphs
+      data/mining/240522-split --p_train 0.8 --subject_id subject_id --obs_id id_visit
+      --group_id visit\n"
+  mine:
+    cmd: "src/motif_mining/mining/gaston_cov.py data/mining/240522-split/train --size
+      3 --support 30\n"
+  extract:
+    cmd: "src/motif_mining/mining/extract_results.py data/mining/240522-split/train
+      --purge_motifs --processes 8\n"

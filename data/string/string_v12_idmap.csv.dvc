@@ -1,0 +1,5 @@
+outs:
+- md5: 7099bad7abaa68194dea08852109cdf3
+  size: 1361627
+  hash: md5
+  path: string_v12_idmap.csv

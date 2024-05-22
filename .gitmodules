@@ -1,0 +1,6 @@
+[submodule "src/motif_mining"]
+	path = src/motif_mining
+	url = git@github.com:Simmunome/motif_mining.git
+[submodule "src/motif_analysis"]
+	path = src/motif_analysis
+	url = git@github.com:Simmunome/motif_analysis.git
