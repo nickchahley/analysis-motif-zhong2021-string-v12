@@ -1,5 +1,6 @@
 [core]
-    remote = remote
+    remote = s3
     autostage = true
-['remote "remote"']
-    url = gs://dvc-simmunome
+['remote "s3"']
+    url = s3://dvc-simmunome-dev
+    region = ca-central-1
