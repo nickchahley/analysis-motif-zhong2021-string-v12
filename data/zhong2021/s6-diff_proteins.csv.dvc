@@ -1,0 +1,6 @@
+outs:
+- md5: da10e84a9f77084fdd096988354a6fe2
+  size: 7982
+  isexec: true
+  hash: md5
+  path: s6-diff_proteins.csv

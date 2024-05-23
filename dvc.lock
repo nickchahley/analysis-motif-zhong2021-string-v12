@@ -14,7 +14,7 @@ stages:
       size: 5097803
   bin_expression:
     cmd: "src/motif_mining/graphs/bin_expression.py  data/zhong2021/expression.csv\
-      \  data/mining  --value npx  --node_id symbol\n"
+      \  data/mining  --value npx  --node_id symbol --idmap data/string/string_v12_idmap.csv\n"
     deps:
     - path: data/zhong2021/expression.csv
       hash: md5
@@ -22,8 +22,9 @@ stages:
       size: 5097803
     - path: src/motif_mining/graphs/bin_expression.py
       hash: md5
-      md5: bca6cccfa17a36727ff15d4de5515eaa
-      size: 4511
+      md5: 3a2b8a7cb7b851cbe7f9b0a4b63c624a
+      size: 5234
+      isexec: true
     outs:
     - path: data/mining/expression/breaks.txt
       hash: md5
@@ -31,8 +32,8 @@ stages:
       size: 153
     - path: data/mining/expression/expression_binned.csv
       hash: md5
-      md5: a92959a411e78dc25336a23e7956d4e6
-      size: 4247044
+      md5: 407eab99c68c0ddd5142da5513fde760
+      size: 7190583
   generate_graphs:
     cmd: "src/motif_mining/graphs/generate.py  data/mining/expression/expression_binned.csv\
       \  data/string/9606.protein.physical.links.detailed.v12.0.txt.gz data/mining/graphs\
@@ -66,7 +67,7 @@ stages:
       size: 5097803
     - path: data/zhong2021/meta.csv
       hash: md5
-      md5: f76384346cfa29745df022a655d1bc00
+      md5: c6749d391e8850b92054a7cc6f45d366
       size: 1690
   setup_exp:
     cmd: "src/motif_mining/mining/setup_experiment.py data/zhong2021/meta.csv data/mining/graphs
@@ -78,3 +79,15 @@ stages:
   extract:
     cmd: "src/motif_mining/mining/extract_results.py data/mining/240522-split/train
       --purge_motifs --processes 8\n"
+  match:
+    cmd: "src/motif_analysis/zhong2021.r data/mining/expression/expression_binned.csv
+      data/mining/240522-split/train/motifs data/mining/240522-split/freq\n"
+    outs:
+    - path: data/mining/240522-split/freq/match.csv
+      hash: md5
+      md5: 235421ef154eaf42de2e36abce4b1e71
+      size: 13083925
+    - path: data/mining/240522-split/freq/motifs.csv
+      hash: md5
+      md5: 17d4cd95a9750355e794b7b751021f68
+      size: 62389766

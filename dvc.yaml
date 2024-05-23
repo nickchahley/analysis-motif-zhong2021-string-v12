@@ -5,6 +5,7 @@ stages:
     cmd: src/clean_expression.py data/zhong2021/s4-plasma_protein_profiling.csv data/zhong2021/expression.csv --meta_out data/zhong2021/meta.csv
     deps:
       - src/clean_expression.py
+      - data/zhong2021/s4-plasma_protein_profiling.csv
     outs:
       - data/zhong2021/expression.csv
       - data/zhong2021/meta.csv
@@ -15,12 +16,12 @@ stages:
       data/mining 
       --value npx 
       --node_id symbol
+      --idmap data/string/string_v12_idmap.csv
     deps:
       - src/motif_mining/graphs/bin_expression.py
       - data/zhong2021/expression.csv
     outs: 
       - data/mining/expression/expression_binned.csv
-      - data/mining/expression/breaks.txt
   generate_graphs:
     cmd: >
       src/motif_mining/graphs/generate.py 
@@ -61,4 +62,29 @@ stages:
       data/mining/240522-split/train
       --purge_motifs
       --processes 8
-      
+    outs:
+      - data/mining/240522-split/train/motifs
+  match:
+    cmd: >
+      src/motif_analysis/zhong2021.r
+      data/mining/expression/expression_binned.csv
+      data/mining/240522-split/train/motifs
+      data/mining/240522-split/freq
+    outs:
+      - data/mining/240522-split/freq/match.csv
+      - data/mining/240522-split/freq/motifs.csv
+  # analysis/results >> Rmd
+  analysis:
+    cmd: echo 'placeholder'
+    deps:
+      - data/mining/240522-split/freq/match.csv
+      - data/mining/240522-split/freq/motifs.csv
+      - data/mining/expression/expression_binned.csv
+      - data/zhong2021/expression.csv
+      - data/zhong2021/meta.csv
+      - data/zhong2021/s4-plasma_protein_profiling.csv
+      - data/zhong2021/s6-diff_proteins.csv
+
+
+
+
