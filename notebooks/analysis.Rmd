@@ -1,0 +1,415 @@
+---
+title: '' output: html_document 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+so <- function() {
+  source('src.r')
+  library(cowplot)
+}
+so()
+```
+
+
+```{r, include=FALSE}
+## Theme ----
+# don't know how to integrate this into a theme() call
+colors    <- c('#BC0722', '#596f91')
+go_colors <- c(colors, '#f16913', '#0DAC4B')
+colors_ls <- list(
+  disease        = colors[[1]],
+  recovery       = colors[[2]],
+  protein        = go_colors[[3]],
+  prot_disease   = go_colors[[3]],
+  prot_recovery  = go_colors[[4]],
+  mot_blue = get_palette2(3, 'Blues', 4)[1],
+  pro_oran = get_palette2(3, 'Oranges', 4)[1],
+  bar_alpha = 0.8,
+  protein_darker = '#d94801',
+  motif          = '#08519c'
+)
+# aliases
+gc <- go_colors 
+cl <- colors_ls
+manual_fill   <- scale_fill_manual(values = colors)
+manual_colors <- scale_color_manual(values = colors)
+
+# Intention for future is to standardize, or take these as args and rename that way
+# For plots we can take a lookup as input and then use the specific names for labs/guides
+lookup <- c(
+  obs_id = 'id_visit', 
+  group = 'visit',
+  symbol = 'protein',
+  subject_id = 'subject.id',
+  subject_id = 'sample_id'
+)
+
+# setwd is not working for me so prepend paths with ../ for now
+files <- list(
+  match = '../data/mining/240522-split/freq/match.csv',
+  motifs = '../data/mining/240522-split/freq/matched_motifs.csv',
+  var_levels = '../data/mining/240522-split/freq/var_levels.csv',
+  expr_binned = '../data/mining/expression/expression_binned.csv',
+  expr = '../data/zhong2021/expression.csv',
+  meta = '../data/zhong2021/meta.csv',
+  s4 = '../data/zhong2021/s4-plasma_protein_profiling.csv',
+  s6 = '../data/zhong2021/s6-diff_proteins.csv')
+```
+
+For initial results (ex. clustering, prediction performance) I don't need to regroup the var_levels in files$motifs back. But for GO analysis, this will be required.
+
+There should be two files there: match (obs_id and motif id, makes the binary feature) and motifs (describes the motof patterns). Also maybe a third file, var_levels, expected. But today (240524) I am going to just proceed with classification first.
+
+```{bash}
+ls ../data/mining/240522-split/freq/
+head ../data/mining/240522-split/freq/*
+```
+
+
+ATM training/valid masks are hidden by taking the diff b/t all samples and the obs_ids found inside of the training graphs
+```{r}
+train_obs <- 
+  file.path(
+    files$match %>% dirname %>% dirname,
+    'train/graphs/') %>% 
+  list.files(recursive = TRUE) %>%
+  basename() %>%
+  str_replace('.pkl', '') %>% 
+  unique()
+
+meta <- read_csv(files$meta) %>% 
+  rename(any_of(lookup)) %>% 
+  mutate(
+    train_mask = case_when(
+      obs_id %in% train_obs ~ TRUE,
+      .default = FALSE
+    ),
+    subject_id = as.character(subject_id)
+  )
+
+# Here assembling the 'mm.file' from template.
+match <- read_csv(files$match) %>% 
+  rename(any_of(lookup)) %>% 
+  mutate_if(is.numeric, as.character) %>% 
+  merge(meta %>% select(subject_id, group, obs_id))
+```
+
+# Describe Frequency
+```{r}
+dir.create('export/describe', showWarnings = FALSE)
+```
+
+```{r}
+.d <- diffs_table(match) %>% 
+  mutate(freq = day0 + day14)
+
+g <- lapply(c('diff', 'abs.diff', 'freq'), function(x) {.d %>% 
+    ggplot(aes_string(x=x)) +
+    geom_histogram(aes(y = after_stat(count)), binwidth=1, color='black', fill='white')
+    # geom_density(aes(y = after_stat(count)), alpha=0.2, fill='#ff6666')
+    }
+    ) %>% 
+  plot_grid(plotlist=., ncol=1)
+
+g
+save_plot('export/describe/motif-count-density-hist.png', g, base_asp = 1, base_height = 8)
+```
+The larges abs diff is 15. 
+
+If I were eyeballing this one, for tails I'd set the diff threshold at 10. How many motifs does that give us? Quite a few.
+Above 12 gives a compareable-ish number to the previous (very truncated) dataset
+
+```{r}
+.vec <- 11:13 
+lapply(.vec, function(x) filter(.d, abs.diff > x) %>% nrow)
+
+# lapply(.vec, function(x) {
+#   filter(match, motif_id %in% motif_id_thresh(x, .d))$subject_id %>% unique %>% length
+# })
+```
+
+
+```{r}
+.pfx <- function(diffs, x) {
+  # https://stackoverflow.com/questions/37802637/density-plots-with-counts
+  diffs %>% 
+    ggplot(aes_string(x=x)) +
+    geom_histogram(aes(y = after_stat(count)), binwidth=1, color='black', fill='white')
+    # geom_density(aes(y = after_stat(count)), alpha=0.25, fill='#ff6666')
+}
+
+thresh <- 12
+lty <- 'dashed'
+p <- .pfx(.d, 'diff') +
+  geom_vline(xintercept = thresh, linetype=lty) +
+  geom_vline(xintercept = -thresh, linetype=lty) +
+  labs(
+    y = 'Count',
+    x = 'Group Difference',
+    title = 'Motif Frequency'
+    ) +
+  scale_x_continuous(breaks = c(-thresh,0,thresh))
+  
+p
+save_plot('export/describe/group-difference-eyeball-threshold.png', p)
+```
+# Dim Reduction Exploration
+Need to replicate npx_assembled from before
+npx assembled is tidy df with subject_id, group, var_id, npx(value float)
+```{r}
+npx_sig <- read_csv(files$s6)$Protein
+expression <- read_csv(files$expr_binned) %>% 
+  rename_with(tolower) %>% 
+  rename(any_of(lookup)) %>% 
+  mutate(subject_id = as.character(subject_id))
+
+npx_assembled <- expression %>% select(subject_id, group, symbol, npx)
+```
+
+
+```{r}
+so()
+
+plot_cumvar <- function(){
+  npx <- npx_assembled %>% 
+    filter(symbol %in% npx_sig) %>% 
+    npx_assembled_to_matrix()  
+
+  mot <- match %>% 
+    bin_mots_for_tree(length(npx_sig))
+
+  dfs <- list(
+    'protein' = npx,
+    'motif'   = mot
+  )
+  res <- list()
+  for (i in 1:length(dfs)) {
+    name <- names(dfs)[[i]]
+    res.pca <-  pca_fx(dfs[[i]])
+    eig <- res.pca$eig
+    
+    res[[name]] <- 
+      list(
+        eig = eig,
+        pcn = find_pcn(eig),
+        U = res.pca$svd$U,
+        name = name
+      )
+  }
+
+  prep_plot <- function(eig, pcn) {
+    eig %>% 
+      data.frame() %>% 
+      mutate(pcn = row_number()) %>% 
+      dplyr::slice_head(n = 50)
+  }
+
+  x_len <- map_depth(res, 1, 'pcn') %>% unlist %>% max +1
+
+  .pfx <- function(ls, fill){
+    lcolor <-  'black'
+    linetype <- 'dashed'
+    linesize <- 0.8
+    xlabs <- seq(0,50,5)
+    ylabs <- c(0,25,50,75,95)
+    
+    df <- prep_plot(ls$eig, ls$pcn)
+    
+    df %>% 
+      ggplot(aes(x=pcn, y=cumulative.percentage.of.variance, fill=fill)) + 
+      geom_bar(stat = 'identity', just=0.5, 
+              width = 1,
+              color='black', fill=fill, alpha=0.8) +
+      geom_hline(yintercept = 95,     linetype=linetype, linewidth=linesize) +
+      geom_vline(xintercept = ls$pcn, linetype=linetype, linewidth=linesize) +
+      labs(x='', y='') +
+      scale_y_continuous(limits = c(0,100), labels = ylabs, breaks = ylabs,) + 
+      scale_x_continuous( limits = c(0,x_len), labels = xlabs, breaks=xlabs,) +
+      theme_minimal()
+  }
+
+  labsize = 10
+  PALETTE <- c(cl['mot_blue'], cl['pro_oran']) # same palette as hc_sup
+  # PALETTE <- get_palette2(2, 'Set1', 0) # same palette as rocs
+  p <- plot_grid(
+    NULL,
+    .pfx(res$motif, PALETTE[1]),
+    .pfx(res$protein, PALETTE[2]) +
+      labs(x='', y='Cumulative Var %'),
+    rel_heights = c(0.05,1,1), 
+    labels = c('', 'Motifs', 'Proteins'),
+    vjust=0.7, hjust=-0.05,
+    label_size=12, label_fontface=2,
+    ncol = 1 ) +
+    draw_label('Principal Component Number', y=0.03, size=labsize, hjust=0.4 )
+
+  p 
+}
+
+p <- plot_cumvar()
+print(p)
+save_plot('export/pca-eigen.pdf', p, base_asp = 1.2)
+```
+
+# Phenotype Classification
+```{r}
+so()
+dir.create('export/rocs', showWarnings = FALSE)
+```
+
+### subplot by pcn
+```{r per pcn subplot comp, fig.height=8, fig.width=6}
+.mca <- function(df, ncp){
+  res <- df %>% 
+    select(where(is.numeric)) %>% 
+    mutate_if(is.numeric, as.factor) %>% 
+    MCA(ncp = ncp, graph=FALSE)
+  res$svd$U %>% 
+    data.frame() %>% 
+    cbind(select(df, !where(is.numeric)))
+}
+
+.pca <- reduce_dims
+
+.get_rocs <- function(df, n_dims, dr_fx, prefix='', dr.only=FALSE){
+  rocs <- list()
+  if (!dr.only){
+    # one w/o dim reduction
+    roc <-  get_dr_feature(df, function(x) return(x))
+    name <- paste(prefix, '\nAUC =', roc$auc)
+    rocs[[name]] <- roc
+  }
+  for (pcn in n_dims) {
+    roc <-  get_dr_feature(df, function(x) dr_fx(x, pcn))
+    name <- paste(prefix, 'PCN =', pcn, '\nAUC =', roc$auc)
+    rocs[[name]] <- roc
+  }
+  rocs
+}
+
+pfx <- function(rocs, palette, clab='', alpha=0.8){
+  p <- rocs %>% 
+    ggroc(
+      aes = c('color'), 
+      alpha    = alpha,
+      size     = 1.5) +
+    theme_classic(base_size = BASE_SIZE) +
+    labs(color = clab)
+  
+  p
+}
+
+
+feat_len <- length(npx_sig)
+npx_sig_mat <- npx_assembled %>% 
+  filter(symbol %in% npx_sig) %>% 
+  npx_assembled_to_matrix()
+mot <- match %>%
+  bin_mots_for_tree(feat_len)
+
+n_dims <- c(15,30,45,50)
+BASE_SIZE <- 12
+PALETTE <- c(cl[['mot_blue']], cl[['pro_oran']]) %>% unlist # same palette as hc_sup
+PALETTE <- c(PALETTE[2], PALETTE[1])
+# .prefix <- paste('len =', feat_len)
+.prefix <- ''
+
+.mr <- .get_rocs(mot, n_dims, .mca, .prefix)
+.pr <- .get_rocs(npx_sig_mat, n_dims, .pca, .prefix)
+pl <- list()
+
+# plot_grid labels are hard to make nice, should use ether subplot titles or guide title to mark PCN
+subplot_labs <- c(
+  paste('Input'), 
+  paste('PCN:', n_dims)
+)
+
+for (i in 1:length(.mr)){
+  .name <- function(roc){paste0('AUC = ', roc$auc)}
+  subpl <- list()
+  subpl[[1]] <- .pr[[i]]
+  subpl[[2]] <- .mr[[i]]
+  
+  # Select which line goes on top
+  bottom <- 2
+  top <- 1
+  color_labs <- c(.name(subpl[[1]]), .name(subpl[[2]]))
+
+  pl[[i]] <- pfx(subpl, PALETTE) + 
+    theme(
+      axis.text = element_text(size=6),
+      axis.title = element_text(size=8),
+      legend.position=c(0.6, 0.4)) +
+    labs(x='', y='', 
+         # title = subplot_labs[[i]]
+    ) +
+    guides(color=guide_legend(title=subplot_labs[[i]])) +
+    scale_color_manual(
+      values = PALETTE,
+      labels = color_labs,
+    )
+}
+
+pl[[length(.mr)]] <- pl[[length(.mr)]] + labs(x='Specificity', y='Sensitivity')
+
+legend <- get_legend(
+  pl[[1]] + 
+    # DANGER These are hardcoded to assume that motifs are the second label (bottom auc)
+    scale_color_manual(values=PALETTE, labels=c('Protein', 'Motif')) +
+    guides(color=guide_legend(
+        title='Feature',
+        override.aes=list(alpha=1, size=4)
+    )) +
+    theme(
+      # legend.key.size = unit(1, 'cm'),
+      legend.text = element_text(size=12),
+      )
+) 
+```
+
+```{r per pcn subplot wide, fig.dim=c(7,5)}
+g <- plot_grid(plotlist=pl, ncol=3, labels = 'auto') +
+  draw_grob(legend,
+            0.27, -0.17,
+            hjust=0, vjust=0)
+
+save_plot('export/rocs/roc-per-pcn-subplot-wide.pdf', g,
+          base_asp = 7/5, base_height = 5)
+g
+```
+# Heirarchical Clustering
+
+
+```{r}
+so()
+match %>% 
+  filter(motif_id %in% motif_id_thresh(12, .d)) %>% 
+  motif_profile_bin() %>%
+  select(1:5) %>%
+  head
+```
+
+
+```{r fig.width=11, fig.height=11}
+so()
+mot <- match %>% 
+  filter(motif_id %in% motif_id_thresh(12, .d))
+
+mot$subject_id %>% unique %>% length
+
+sample.ids <- filter(meta, train_mask)$subject_id
+
+runphylo(mot)
+.saveplot('motif-all-dendro.png')
+
+filter_ids(mot, sample.ids) %>%
+  runphylo()
+.saveplot('train-all-dendro.png')
+
+filter_ids(mot, sample.ids, negative=TRUE) %>%
+  runphylo()
+.saveplot('test-all-dendro.png')
+```
+
+# MISC
