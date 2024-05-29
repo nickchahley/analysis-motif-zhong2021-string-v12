@@ -14,6 +14,21 @@ library(xgboost)
 library(FactoMineR)
 ps <- function(x, l=2){print(str(x, max.level=l))}
 
+#' To allow prefiltering of motif matches before passing to binary feature
+#' creation (raw data is over 5 million matches!)
+motifs_at_thresh <- function(thresh, diffs, thresh_col='abs_diff'){
+  x <- diffs %>% filter(.data[[thresh_col]] >= thresh)
+  x$motif_id
+}
+
+#' Here is a basic concept I should have clued into a long time ago. We
+#' identify the motifs using the training set only, therefore to produce a
+#' motif feature for any downstream analysis we should filter the dataset
+#' (whether train, test, pooled) by the list of those ids 
+filt_thresh <- function(df, diffs, thresh){
+  filter(df, motif_id %in% motifs_at_thresh(thresh, diffs))
+}
+
 ### Heirarchical Clustering Suite
 
 #' Get hclustering of binary features, uses jaccard distance (ade4 method 1)
@@ -89,17 +104,12 @@ runphylo <- function(mot){
   dev.off()
 }
 
-#' To allow prefiltering of motif matches before passing to binary feature
-#' creation (raw data is over 5 million matches!)
-motif_id_thresh <- function(thresh, diffs){
-  x <- diffs %>% filter(abs.diff > thresh)
-  x$motif_id
-}
+### End Hierarchical Clustering Suite
 
 #' Get the roc of a single dim red'd feature for bundling into a ggroc plot
 #' Supply pcn within the dr_fx argument
-#' Globals: xgb_function, sample_ids
-get_dr_feature <- function(df, dr_fx){
+#' Globals: xgb_function 
+get_dr_feature <- function(df, dr_fx, sample.ids){
   feat <- dr_fx(df) %>%
     split_patients(sample.ids)
   xgb <- run_xgb(feat, xgb_function)
@@ -287,7 +297,7 @@ filter_ids <- function(df, sample.ids, negative=FALSE) {
 #' get motif profile specifically for decision trees
 #' @param n_motifs: int, returns all motifs if null
 #' @returns data.frame
-bin_mots_for_tree = function(mot, n_motifs=NULL){
+bin_mots_for_tree <- function(mot, n_motifs=NULL){
   diffs = mot %>% diffs_table(n_motifs)
   mot = mot %>%
   filter(motif_id %in% diffs$motif_id) %>%
@@ -315,10 +325,10 @@ bin_mots_for_tree = function(mot, n_motifs=NULL){
 #' @returns data.frame diffs_table
 #' @export
 diffs_table <- function(df, n_most_diff=NULL) {
-  diffs = get_diffs_df(df)
+  diffs <- get_diffs_df(df)
   if (is.numeric(n_most_diff)) {
-    diffs = diffs %>%
-      slice_max(order_by = abs.diff, n = n_most_diff, with_ties = TRUE)}
+    diffs <- diffs %>%
+      slice_max(order_by = abs_diff, n = n_most_diff, with_ties = TRUE)}
   return(diffs)
 }
 
@@ -328,7 +338,7 @@ diffs_table <- function(df, n_most_diff=NULL) {
 #'
 #' @param df matched/detected motifs
 #' @returns df containing motif_id, counts per group, and diff of counts,
-#'   arranged by abs.diff desc
+#'   arranged by abs_diff desc
 get_diffs_df <- function(df, group='group', motif_id='motif_id') {
   # TODO: Ensure This is only for two groups. Dynamically find the values for
   # the groups and make sure that the output is clear which was subtracted from
@@ -340,18 +350,15 @@ get_diffs_df <- function(df, group='group', motif_id='motif_id') {
 
   # Missing value means zero count
   diffs[is.na(diffs)] = 0
-  diffs$diff = (diffs$day0 - diffs$day14)
-  diffs$abs.diff = (abs(diffs$diff))
-
-  diffs = diffs %>%
+  diffs %>%
     mutate(
+      diff = day0 - day14,
+      abs_diff = abs(diff),
       phenotype = case_when(
         diff > 0 ~ 'disease',
-        diff < 0 ~ 'recovery'
-  )) %>%
-    arrange(desc(abs.diff))
-
-  return(diffs)
+        diff < 0 ~ 'recovery'),
+      freq = day0 + day14) %>%
+    arrange(desc(abs_diff))
 }
 
 #' Make motif profile into a vector of binary vals
@@ -407,6 +414,9 @@ npx_for_tree <- function(table_s6_file, npx_assembled_file){
 
 #' use these names to filter table s4 vector
 get_sig_proteins <- function(table_s6) {
+  if (is.character(table_s6)){
+    table_s6 <- read.csv(table_s6)
+  }
   table_s6 %>%
     rename_with(tolower)  %>%
     distinct(protein) %>%
