@@ -18,39 +18,38 @@ stages:
     deps:
     - path: data/zhong2021/expression.csv
       hash: md5
-      md5: 87d24147c0f08f0a6a5550d3729010ae
-      size: 5097803
+      md5: 0ec0dd21f0f0a065f0836fb40c23c60b
+      size: 5097801
     - path: src/motif_mining/graphs/bin_expression.py
       hash: md5
       md5: 83193852c86a46a37bf2f728b4817586
       size: 5541
-      isexec: true
     outs:
     - path: data/mining/expression/expression_binned.csv
       hash: md5
-      md5: bc9b32cd7521c82b5c0ddc675508742a
-      size: 8960381
+      md5: 0b8ae442966a13c6b4e4a92ef715e2bd
+      size: 8960379
   generate_graphs:
     cmd: "src/motif_mining/graphs/generate.py  data/mining/expression/expression_binned.csv\
       \  data/string/9606.protein.physical.links.detailed.v12.0.txt.gz data/mining/graphs\
-      \  --node_ids data/string/string_v12_idmap.csv --var_id symbol --obs_id id_visit
-      --clobber\n"
+      \  --idmap data/string/string_v12_idmap.csv --clobber\n"
     deps:
     - path: data/mining/expression/expression_binned.csv
       hash: md5
-      md5: a92959a411e78dc25336a23e7956d4e6
-      size: 4247044
+      md5: 0b8ae442966a13c6b4e4a92ef715e2bd
+      size: 8960379
     - path: data/string/string_v12_idmap.csv
       hash: md5
       md5: 7099bad7abaa68194dea08852109cdf3
       size: 1361627
     - path: src/motif_mining/graphs/generate.py
       hash: md5
-      md5: 977dd0c0e3175c36964e5f3165643550
-      size: 7025
+      md5: 7e65863360fac14971623a4fa9b4c97f
+      size: 7014
+      isexec: true
   clean:
-    cmd: src/clean_expression.py data/zhong2021/s4-plasma_protein_profiling.csv data/zhong2021/expression.csv
-      --meta_out data/zhong2021/meta.csv
+    cmd: "src/clean_expression.py data/zhong2021/s4-plasma_protein_profiling.csv data/zhong2021/expression.csv
+      --meta_out data/zhong2021/meta.csv\n"
     deps:
     - path: data/zhong2021/s4-plasma_protein_profiling.csv
       hash: md5
@@ -58,20 +57,20 @@ stages:
       size: 1807575
     - path: src/clean_expression.py
       hash: md5
-      md5: c25b7e336bd0b067b47245b8fada6757
-      size: 1631
+      md5: a8e330c676aeba0fc454ec871a19fd67
+      size: 1823
     outs:
     - path: data/zhong2021/expression.csv
       hash: md5
-      md5: 87d24147c0f08f0a6a5550d3729010ae
-      size: 5097803
+      md5: 0ec0dd21f0f0a065f0836fb40c23c60b
+      size: 5097801
     - path: data/zhong2021/meta.csv
       hash: md5
-      md5: 5f30c69f72345302cc9adbc77972b46a
-      size: 1690
+      md5: 4fd21fa61a7a1e8e2091a188a74aee8a
+      size: 1688
   setup_exp:
     cmd: "src/motif_mining/mining/setup_experiment.py data/zhong2021/meta.csv data/mining/graphs
-      data/mining/240522-split --p_train 0.8 --subject_id subject_id --obs_id id_visit
+      data/mining/240522-split --p_train 0.8 --subject_id subject_id --obs_id obs_id
       --group_id visit\n"
   mine:
     cmd: "src/motif_mining/mining/gaston_cov.py data/mining/240522-split/train --size
@@ -82,8 +81,8 @@ stages:
     outs:
     - path: data/mining/240522-split/train/motifs
       hash: md5
-      md5: c68ce7a1e2e6c4a627607f1e6433c21f.dir
-      size: 64707829
+      md5: e2f65b686c1947ea8ac197c485adcf99.dir
+      size: 65756923
       nfiles: 2
   match:
     cmd: "src/motif_mining/mining/match_motifs.py data/mining/240522-split/train/motifs
@@ -92,13 +91,38 @@ stages:
     outs:
     - path: data/mining/240522-split/freq/matched_motifs.csv
       hash: md5
-      md5: b693b77007761f41e0cce242288a57c9
-      size: 1161346694
+      md5: 0dfc2ac5935699ac22375ffcc99112fa
+      size: 1175385697
   join_metadata:
     cmd: "src/motif_mining/mining/join_metadata.py data/zhong2021/meta.csv data/mining/240522-split/train/gaston_files
-      data/mining/240522-split/train/meta.csv --meta_obs_id id_visit\n"
+      data/mining/240522-split/train/meta.csv\n"
     outs:
     - path: data/mining/240522-split/train/meta.csv
       hash: md5
-      md5: f9dd73afdf165e573006e5b99a102b49
-      size: 18451
+      md5: 846c8247a9922d5a7884fd59f68441b2
+      size: 17499
+  setup:
+    cmd: src/setup.sh
+  analysis:
+    cmd: echo 'placeholder'
+    deps:
+    - path: data/mining/240522-split/freq/matched_motifs.csv
+      hash: md5
+      md5: 0dfc2ac5935699ac22375ffcc99112fa
+      size: 1175385697
+    - path: data/zhong2021/expression.csv
+      hash: md5
+      md5: 0ec0dd21f0f0a065f0836fb40c23c60b
+      size: 5097801
+    - path: data/zhong2021/meta.csv
+      hash: md5
+      md5: 4fd21fa61a7a1e8e2091a188a74aee8a
+      size: 1688
+    - path: data/zhong2021/s4-plasma_protein_profiling.csv
+      hash: md5
+      md5: 424729302ee88b4643739db1a3554ba3
+      size: 1807575
+    - path: data/zhong2021/s6-diff_proteins.csv
+      hash: md5
+      md5: da10e84a9f77084fdd096988354a6fe2
+      size: 7982

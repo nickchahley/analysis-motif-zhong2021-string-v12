@@ -12,7 +12,9 @@ def cline(args_ls = sys.argv[1:]):
     p.add_argument('infile', help = 'path to expression file')
     p.add_argument('outfile', help = 'path to write out')
     p.add_argument('--meta_out', help = 'write metadata table to path, if supplied')
-    p.add_argument('--obs_id', default='id_visit', help = '')
+    p.add_argument('--obs_id', default='obs_id',
+                   help = 'Create obs_id column of this name by joining group and subject id cols')
+    p.add_argument('--obs_id_sep', default='_', help = 'Separator to use in creating obs_id')
     p.add_argument('--group_id', default='visit')
     p.add_argument('--subject_id', default='subject_id')
     p.add_argument('--var_id', default='symbol', help = '')
@@ -27,7 +29,7 @@ def main(args):
     npx = npx.cast({col: pl.Utf8 for col in id_cols})
     npx = npx.melt(id_vars=id_cols, variable_name=args.var_id, value_name=args.value)
     npx = npx.with_columns(
-        pl.concat_str( id_cols, separator='_',).alias(args.obs_id),
+        pl.concat_str(id_cols, separator=args.obs_id_sep,).alias(args.obs_id),
         pl.col(args.var_id).str.to_uppercase() # Symbol (also all var_ids, off the top of my head) expect UPPER
     )
     npx.write_csv(args.outfile)
