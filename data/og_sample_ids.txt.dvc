@@ -1,0 +1,5 @@
+outs:
+- md5: 74988c31e995a163d9320f04a46778a9
+  size: 668
+  hash: md5
+  path: og_sample_ids.txt

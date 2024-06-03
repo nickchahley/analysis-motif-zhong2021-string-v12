@@ -1,3 +1,7 @@
 /match.csv
 /motifs.csv
 /matched_motifs.csv
+/motif_profile.csv
+/diffs_train.csv
+/diffs_all.csv
+/diffs_valid.csv
