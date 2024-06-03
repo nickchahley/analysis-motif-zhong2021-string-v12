@@ -12,11 +12,29 @@ library(tidyverse)
 library(pROC)
 library(xgboost)
 library(FactoMineR)
+
 ps <- function(x, l=2){print(str(x, max.level=l))}
+
+`%nin%` <- negate(`%in%`)
+
+#' Assume that non-numeric columns are id_vars
+filter_profile <- function(mat, motif_ids, id_cols=c('obs_id', 'subject_id', 'group')){
+  mat[, c(id_cols, motif_ids)]
+}
+
+#' I want to compare motif thresholds, pcn over AUC.
+#' Put dot in front b/c this is a macro
+.comp_mtd <- function(df, dr_fx, sample_ids, xgb_fx){
+  dr <- dr_fx(df)
+  data_labels <- split_patients(sample_ids) # What's a better name for this?
+  xgb <- run_xgb(feat, xgb_fx)
+  xgb$roc
+}
+
 
 #' To allow prefiltering of motif matches before passing to binary feature
 #' creation (raw data is over 5 million matches!)
-motifs_at_thresh <- function(thresh, diffs, thresh_col='abs_diff'){
+motifs_at_thresh <- function(diffs, thresh, thresh_col){
   x <- diffs %>% filter(.data[[thresh_col]] >= thresh)
   x$motif_id
 }
@@ -33,10 +51,9 @@ filt_thresh <- function(df, diffs, thresh){
 
 #' Get hclustering of binary features, uses jaccard distance (ade4 method 1)
 #' @returns d.hc: distance.hclustered
-run_hclust <- function(mot, id_col='obs_id', hc_method='ward.D2'){
-  mot %>%
-    motif_profile_bin() %>%
-    column_to_rownames(id_col) %>%
+run_hclust <- function(mat, obs_id='obs_id', hc_method='ward.D2'){
+  mat %>%
+    column_to_rownames(obs_id) %>%
     select(where(is.numeric)) %>%
     ade4::dist.binary(method=1) %>%
     hclust(method=hc_method)
@@ -75,20 +92,22 @@ construct_dendapply <- function(var_col, lwd=2){
 
 #' Even tho this is a macro, I might want to keep it in src since it
 #' demonstrates the very nifty dendrapply(construct_dendapply) usage
-#' @param mot: df, binary motif profile
+#' @param mot: df, m*n where feat vars are numeric
 #' @examples
 #' To save this plot use dev.copy/off.
 #' ppi <- 120
 #' dev.copy(png, height=11*ppi, width=11*ppi, res=ppi, 'plot.png') 
 #' dev.off()
-runphylo <- function(mot){
-  lwd = 2
-  d.hc <- run_hclust(mot)
+runphylo <- function(mat, hclust_fx=run_hclust){
+  lwd <- 2
+  d.hc <- hclust_fx(mat)
   var_col <- get_label_colors(d.hc$labels, colors)
   dend  <- d.hc %>%
     as.dendrogram() %>%
     dendrapply(construct_dendapply(var_col, lwd=lwd))
   par(lwd = lwd, family = 'monospaced', ps = 12, font = 2 )
+  # plots the dendrogram as circular, obj returned is still 'regular' dendrogram
+  # can plot it like a fan with plot(dend), etc
   dendextend::circlize_dendrogram(dend)
 }
 
@@ -297,20 +316,16 @@ filter_ids <- function(df, sample.ids, negative=FALSE) {
 #' get motif profile specifically for decision trees
 #' @param n_motifs: int, returns all motifs if null
 #' @returns data.frame
-bin_mots_for_tree <- function(mot, n_motifs=NULL){
-  diffs = mot %>% diffs_table(n_motifs)
-  mot = mot %>%
-  filter(motif_id %in% diffs$motif_id) %>%
-  motif_profile_bin() %>%
-  mutate(
-    label = case_when(
-        group == 'day0' ~ 0,
-        group == 'day14' ~ 1),
-    subject_id = as.character(subject_id)) %>%
-  mutate(label = as.character(label)) %>%
-  relocate(label, subject_id) %>%
-  select(label, subject_id, matches('^[0-9]'))
-  return(mot)
+bin_mots_for_tree <- function(motif_profile, n_motifs=NULL){
+  motif_profile %>% 
+    mutate(
+      label = case_when(
+          group == 'day0' ~ 0,
+          group == 'day14' ~ 1),
+      subject_id = as.character(subject_id)) %>%
+    mutate(label = as.character(label)) %>%
+    relocate(label, subject_id) %>%
+    select(label, subject_id, matches('^[0-9]'))
 }
 
 
@@ -367,23 +382,14 @@ get_diffs_df <- function(df, group='group', motif_id='motif_id') {
 #' @param columns column names to pull from the motif file
 #' @returns a wide dataframe where each row is a sample's motif profile
 #' @export
-motif_profile_bin <- function(m, columns = c('subject_id', 'group', 'motif_id')) {
-  m = m %>%
-    mutate_at(.vars = c('subject_id', 'group'),
-              .fun = factor) %>%
-    select(all_of(columns))
-
+motif_profile_bin <- function(m, columns = c('obs_id', 'subject_id', 'group', 'motif_id')) {
   # long df only contains instances where motifs are present. after pivoting
   # wide, the motifs absent in a sample will be NA. assign those to 0
   m$value = 1
-  m = m %>%
-    pivot_wider(id_cols=c('subject_id', 'group'), names_from='motif_id',
-                values_from = 'value') %>%
+  m <- m %>%
+    select(all_of(columns))
+    pivot_wider(id_cols=c('obs_id', 'subject_id', 'group'), names_from='motif_id', values_from='value') %>%
     mutate_all(~replace_na(.,0))
-  m = m %>% mutate(id=row_number())
-  m = m %>% unite(obs_id, c('subject_id', 'group'), remove=F) # row uid
-
-  return(m)
 }
 
 #' code zhong2021 for classifier
