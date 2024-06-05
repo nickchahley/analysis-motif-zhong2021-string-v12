@@ -1,0 +1,10 @@
+.Rproj.user
+*.Rproj
+.Rhistory
+.RData
+.Ruserdata
+**/*/*graphs*/
+**/*/*patterns*/
+**/*/*gaston_files*/
+dapargs.txt
+*.vscode
